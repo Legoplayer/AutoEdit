@@ -1,12 +1,141 @@
 ﻿<Window x:Class="AutoEdit.UI.MainWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
-        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
-        xmlns:local="clr-namespace:AutoEdit.UI"
-        mc:Ignorable="d"
-        Title="MainWindow" Height="450" Width="800">
-    <Grid>
+        xmlns:materialDesign="http://materialdesigninxaml.net/winfx/xaml/themes"
+        Title="AutoEdit" Width="1200" Height="750"
+        WindowStartupLocation="CenterScreen"
+        TextElement.FontSize="14"
+        Background="{DynamicResource MaterialDesignPaper}">
 
+    <Grid Margin="16">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <!-- Top toolbar -->
+        <DockPanel Grid.Row="0" LastChildFill="False" Margin="0,0,0,12">
+            <TextBlock Text="AutoEdit" FontSize="26" FontWeight="SemiBold" DockPanel.Dock="Left"/>
+
+            <StackPanel Orientation="Horizontal" DockPanel.Dock="Right">
+                <Button Margin="8,0,0,0"
+                        Command="{Binding ImportClipsCommand}"
+                        Style="{StaticResource MaterialDesignOutlinedButton}">
+                    Import clips
+                </Button>
+
+                <Button Margin="8,0,0,0"
+                        Command="{Binding ImportMusicCommand}"
+                        Style="{StaticResource MaterialDesignOutlinedButton}">
+                    Import music
+                </Button>
+
+                <Button Margin="8,0,0,0"
+                        Command="{Binding AnalyzeCommand}"
+                        Style="{StaticResource MaterialDesignRaisedButton}">
+                    Analyze
+                </Button>
+
+                <Button Margin="8,0,0,0"
+                        Command="{Binding RenderCommand}"
+                        Style="{StaticResource MaterialDesignRaisedButton}">
+                    Render
+                </Button>
+
+                <Button Margin="8,0,0,0"
+                        Command="{Binding CancelCommand}"
+                        IsEnabled="{Binding IsBusy}"
+                        Style="{StaticResource MaterialDesignOutlinedButton}">
+                    Cancel
+                </Button>
+            </StackPanel>
+        </DockPanel>
+
+        <!-- Main area -->
+        <Grid Grid.Row="1">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="320"/>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="340"/>
+            </Grid.ColumnDefinitions>
+
+            <!-- Left: media -->
+            <materialDesign:Card Grid.Column="0" Padding="12" Margin="0,0,12,0">
+                <StackPanel>
+                    <TextBlock Text="Media" FontSize="18" FontWeight="SemiBold" Margin="0,0,0,12"/>
+
+                    <TextBlock Text="Clips" FontWeight="SemiBold" Margin="0,0,0,6"/>
+                    <ListBox ItemsSource="{Binding Clips}"
+                             SelectedItem="{Binding SelectedClip}"
+                             DisplayMemberPath="FileName"
+                             MinHeight="220"/>
+
+                    <Separator Margin="0,12,0,12"/>
+
+                    <TextBlock Text="Music" FontWeight="SemiBold" Margin="0,0,0,6"/>
+                    <TextBlock Text="{Binding MusicPath}" TextWrapping="Wrap"/>
+                </StackPanel>
+            </materialDesign:Card>
+
+            <!-- Center: preview (placeholder) -->
+            <materialDesign:Card Grid.Column="1" Padding="12">
+                <Grid>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="*"/>
+                        <RowDefinition Height="Auto"/>
+                    </Grid.RowDefinitions>
+
+                    <TextBlock Text="Preview" FontSize="18" FontWeight="SemiBold"/>
+
+                    <Border Grid.Row="1" Margin="0,12,0,12" CornerRadius="12" Background="#22000000">
+                        <Grid>
+                            <TextBlock HorizontalAlignment="Center" VerticalAlignment="Center"
+                                       Text="(Video preview här - LibVLCSharp eller MediaElement)"
+                                       Opacity="0.7"/>
+                        </Grid>
+                    </Border>
+
+                    <TextBlock Grid.Row="2" Text="{Binding StatusText}" Opacity="0.75"/>
+                </Grid>
+            </materialDesign:Card>
+
+            <!-- Right: settings -->
+            <materialDesign:Card Grid.Column="2" Padding="12" Margin="12,0,0,0">
+                <StackPanel>
+                    <TextBlock Text="Settings" FontSize="18" FontWeight="SemiBold" Margin="0,0,0,12"/>
+
+                    <TextBlock Text="Style preset" FontWeight="SemiBold"/>
+                    <ComboBox ItemsSource="{Binding Presets}" SelectedItem="{Binding SelectedPreset}" Margin="0,6,0,12"/>
+
+                    <TextBlock Text="Cut aggressiveness" FontWeight="SemiBold"/>
+                    <Slider Minimum="0" Maximum="100" Value="{Binding Aggressiveness}" Margin="0,6,0,12"/>
+
+                    <TextBlock Text="Min clip length (sec)" FontWeight="SemiBold"/>
+                    <Slider Minimum="0.2" Maximum="3.0" Value="{Binding MinClipSeconds}" Margin="0,6,0,12"/>
+
+                    <TextBlock Text="Max clip length (sec)" FontWeight="SemiBold"/>
+                    <Slider Minimum="1.0" Maximum="10.0" Value="{Binding MaxClipSeconds}" Margin="0,6,0,12"/>
+                </StackPanel>
+            </materialDesign:Card>
+        </Grid>
+
+        <!-- Bottom: progress -->
+        <materialDesign:Card Grid.Row="2" Padding="12" Margin="0,12,0,0">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="280"/>
+                </Grid.ColumnDefinitions>
+
+                <TextBlock Text="{Binding LogLine}" Opacity="0.85" TextTrimming="CharacterEllipsis"/>
+
+                <StackPanel Grid.Column="1">
+                    <ProgressBar Height="10" Value="{Binding Progress}" Maximum="100" />
+                    <TextBlock Text="{Binding ProgressText}" HorizontalAlignment="Right" Opacity="0.75" Margin="0,6,0,0"/>
+                </StackPanel>
+            </Grid>
+        </materialDesign:Card>
     </Grid>
 </Window>

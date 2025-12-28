@@ -6,9 +6,6 @@ FFmpeg.SetExecutablesPath(@"C:\Program Files\WinGet\Packages\Gyan.FFmpeg_Microso
 
 namespace AutoEdit.UI
 {
-    /// <summary>
-    /// Interaction logic for App.xaml
-    /// </summary>
     public partial class App : Application
     {
     }
