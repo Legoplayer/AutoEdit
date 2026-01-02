@@ -16,6 +16,7 @@ namespace AutoEdit.UI
         public MainWindow()
         {
             InitializeComponent();
+            DataContext = new MainViewModel();
         }
     }
 }

@@ -1,11 +1,14 @@
+using AutoEdit.Media;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Microsoft.Win32;
+using System;
+using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.IO;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
-using System;
 
 namespace AutoEdit.UI
 {
@@ -14,10 +17,14 @@ namespace AutoEdit.UI
     /// </summary>
     public partial class MainViewModel : ObservableObject
     {
-        public ObservableCollection<ClipItem> Clips { get; } = new();
+        public ObservableCollection<ClipItem> Clips { get; } = [];
 
         [ObservableProperty] private ClipItem? selectedClip;
-        [ObservableProperty] private string? musicPath;
+        
+        [ObservableProperty]
+        [NotifyCanExecuteChangedFor(nameof(AnalyzeCommand))]
+        [NotifyCanExecuteChangedFor(nameof(RenderCommand))]
+        private string? musicPath;
 
         [ObservableProperty] private bool isBusy;
         [ObservableProperty] private double progress;
@@ -33,6 +40,8 @@ namespace AutoEdit.UI
         [ObservableProperty] private double maxClipSeconds = 3.5;
 
         private CancellationTokenSource? _cts;
+        private AudioAnalysisResult? _musicAnalysis;
+        private List<TimelineEvent>? _timeline;
 
         [RelayCommand]
         private void ImportClips()
@@ -53,6 +62,10 @@ namespace AutoEdit.UI
 
             StatusText = $"Loaded {dlg.FileNames.Length} clips.";
             LogLine = StatusText;
+            
+            // Uppdatera knappstatus
+            AnalyzeCommand.NotifyCanExecuteChanged();
+            RenderCommand.NotifyCanExecuteChanged();
         }
 
         [RelayCommand]
@@ -85,20 +98,73 @@ namespace AutoEdit.UI
 
             try
             {
-                // TODO: ersätt med services i AutoEdit.Media/Core
-                await StepAsync("Analyzing music...", 0, 35, _cts.Token);
-                await StepAsync("Analyzing clips...", 35, 80, _cts.Token);
-                await StepAsync("Building timeline...", 80, 100, _cts.Token);
+                // 1) Ljudanalys
+                var audioSvc = CreateAudioService();
 
-                StatusText = "Analysis complete.";
+                var prog = new Progress<(int percent, string message)>(p =>
+                {
+                    // Skala 0-35% för ljudanalysen
+                    Progress = p.percent * 0.35;
+                    StatusText = p.message;
+                    LogLine = p.message;
+                });
+
+                _musicAnalysis = await audioSvc.AnalyzeAsync(MusicPath!, prog, _cts.Token);
+
+                // 2) Videoanalys (för varje klipp)
+                var videoSvc = CreateVideoService();
+                int clipCount = Clips.Count;
+                int currentClip = 0;
+                var analyzedVideos = new List<VideoAnalysisResult>();
+
+                foreach (var clip in Clips)
+                {
+                    currentClip++;
+                    // Skala 35-90% för videoanalysen
+                    double baseProg = 35 + ((currentClip - 1) / (double)clipCount) * 55;
+                    
+                    var clipProg = new Progress<(int percent, string message)>(p =>
+                    {
+                        Progress = baseProg + (p.percent * 0.55 / clipCount);
+                        StatusText = $"Clip {currentClip}/{clipCount}: {p.message}";
+                        if (p.percent % 20 == 0) // Logga inte för ofta
+                            LogLine = StatusText;
+                    });
+
+                    // Vi vill inte krascha hela pipelinen om en fil är korrupt, kanske?
+                    // Men för nu kastar vi exception om det felar.
+                    clip.Analysis = await videoSvc.AnalyzeAsync(clip.Path, clipProg, _cts.Token);
+                    analyzedVideos.Add(clip.Analysis);
+                }
+
+                // 3) Redigeringsbeslut
+                Progress = 95;
+                StatusText = "Building timeline...";
+                
+                var builder = new TimelineBuilder();
+                _timeline = builder.Build(
+                    _musicAnalysis, 
+                    analyzedVideos, 
+                    MinClipSeconds, 
+                    MaxClipSeconds, 
+                    Aggressiveness);
+
+                Progress = 100;
+                StatusText = $"Timeline ready. {_timeline.Count} cuts created.";
                 LogLine = StatusText;
-                ProgressText = "Done";
+                ProgressText = "Ready to render";
             }
             catch (OperationCanceledException)
             {
                 StatusText = "Canceled.";
                 LogLine = StatusText;
                 ProgressText = "Canceled";
+            }
+            catch (Exception ex)
+            {
+                StatusText = "Error during analysis.";
+                LogLine = ex.Message;
+                ProgressText = "Error";
             }
             finally
             {
@@ -117,6 +183,22 @@ namespace AutoEdit.UI
         [RelayCommand(CanExecute = nameof(CanRender))]
         private async Task RenderAsync()
         {
+            if (_timeline == null || _timeline.Count == 0)
+            {
+                StatusText = "No timeline generated yet. Run Analyze first.";
+                return;
+            }
+
+            var saveDlg = new SaveFileDialog
+            {
+                Title = "Save Video",
+                Filter = "MP4 Video|*.mp4",
+                FileName = "AutoEdit_Output.mp4"
+            };
+
+            if (saveDlg.ShowDialog() != true) return;
+            string outputPath = saveDlg.FileName;
+
             _cts = new CancellationTokenSource();
             IsBusy = true;
             Progress = 0;
@@ -124,18 +206,35 @@ namespace AutoEdit.UI
 
             try
             {
-                // TODO: här kör du FFmpeg render
-                await StepAsync("Rendering video...", 0, 100, _cts.Token);
+                var renderer = CreateRenderingService();
+
+                var prog = new Progress<(int percent, string message)>(p =>
+                {
+                    Progress = p.percent;
+                    StatusText = p.message;
+                    LogLine = p.message;
+                });
+
+                await renderer.RenderAsync(_timeline, MusicPath!, outputPath, prog, _cts.Token);
 
                 StatusText = "Render complete.";
-                LogLine = StatusText;
+                LogLine = $"Saved to: {outputPath}";
                 ProgressText = "Done";
+                
+                // Öppna mappen (valfritt)
+                // System.Diagnostics.Process.Start("explorer.exe", $"/select,\"{outputPath}\"");
             }
             catch (OperationCanceledException)
             {
                 StatusText = "Canceled.";
                 LogLine = StatusText;
                 ProgressText = "Canceled";
+            }
+            catch (Exception ex)
+            {
+                StatusText = "Error during render.";
+                LogLine = ex.Message;
+                ProgressText = "Error";
             }
             finally
             {
@@ -146,7 +245,7 @@ namespace AutoEdit.UI
             }
         }
 
-        private bool CanRender() => !IsBusy && Clips.Count > 0 && !string.IsNullOrWhiteSpace(MusicPath);
+        private bool CanRender() => !IsBusy && _timeline != null && _timeline.Count > 0;
 
         [RelayCommand]
         private void Cancel() => _cts?.Cancel();
@@ -166,12 +265,39 @@ namespace AutoEdit.UI
                 await Task.Delay(50, ct);
             }
         }
+
+        private AudioAnalysisService CreateAudioService()
+        {
+            string ffmpegExe = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "ffmpeg", "ffmpeg.exe");
+            var runner = new FfmpegRunner(ffmpegExe);
+            return new AudioAnalysisService(runner);
+        }
+
+        private VideoAnalysisService CreateVideoService()
+        {
+            string baseDir = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "ffmpeg");
+            string ffmpegExe = Path.Combine(baseDir, "ffmpeg.exe");
+            string ffprobeExe = Path.Combine(baseDir, "ffprobe.exe");
+            
+            var ffmpeg = new FfmpegRunner(ffmpegExe);
+            var ffprobe = new FfprobeRunner(ffprobeExe);
+            
+            return new VideoAnalysisService(ffmpeg, ffprobe);
+        }
+
+        private RenderingService CreateRenderingService()
+        {
+            string ffmpegExe = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "ffmpeg", "ffmpeg.exe");
+            var runner = new FfmpegRunner(ffmpegExe);
+            return new RenderingService(runner);
+        }
     }
 
     public sealed class ClipItem
     {
         public string Path { get; }
         public string FileName => System.IO.Path.GetFileName(Path);
+        public VideoAnalysisResult? Analysis { get; set; }
         
         public ClipItem(string path) => Path = path;
     }
