@@ -1,4 +1,4 @@
-﻿<Window x:Class="AutoEdit.UI.MainWindow"
+<Window x:Class="AutoEdit.UI.MainWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:materialDesign="http://materialdesigninxaml.net/winfx/xaml/themes"
@@ -11,6 +11,7 @@
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
             <RowDefinition Height="Auto"/>
         </Grid.RowDefinitions>
 
@@ -27,6 +28,7 @@
 
                 <Button Margin="8,0,0,0"
                         Command="{Binding ImportMusicCommand}"
+                        IsEnabled="{Binding UseMusic}"
                         Style="{StaticResource MaterialDesignOutlinedButton}">
                     Import music
                 </Button>
@@ -68,8 +70,22 @@
                     <TextBlock Text="Clips" FontWeight="SemiBold" Margin="0,0,0,6"/>
                     <ListBox ItemsSource="{Binding Clips}"
                              SelectedItem="{Binding SelectedClip}"
-                             DisplayMemberPath="FileName"
-                             MinHeight="220"/>
+                             MinHeight="220">
+                        <ListBox.ItemTemplate>
+                            <DataTemplate>
+                                <StackPanel Orientation="Horizontal">
+                                    <materialDesign:PackIcon Kind="Bookmark" 
+                                                             Width="16" Height="16"
+                                                             VerticalAlignment="Center"
+                                                             Margin="0,0,8,0"
+                                                             Foreground="{DynamicResource SecondaryHueMidBrush}"
+                                                             Visibility="{Binding HasBookmarks, Converter={StaticResource BooleanToVisibilityConverter}}"
+                                                             ToolTip="Has PotPlayer bookmarks"/>
+                                    <TextBlock Text="{Binding FileName}" VerticalAlignment="Center"/>
+                                </StackPanel>
+                            </DataTemplate>
+                        </ListBox.ItemTemplate>
+                    </ListBox>
 
                     <Separator Margin="0,12,0,12"/>
 
@@ -78,7 +94,7 @@
                 </StackPanel>
             </materialDesign:Card>
 
-            <!-- Center: preview (placeholder) -->
+            <!-- Center: preview -->
             <materialDesign:Card Grid.Column="1" Padding="12">
                 <Grid>
                     <Grid.RowDefinitions>
@@ -87,13 +103,39 @@
                         <RowDefinition Height="Auto"/>
                     </Grid.RowDefinitions>
 
-                    <TextBlock Text="Preview" FontSize="18" FontWeight="SemiBold"/>
+                    <DockPanel Grid.Row="0" LastChildFill="False" Margin="0,0,0,8">
+                        <TextBlock Text="Preview" FontSize="18" FontWeight="SemiBold" DockPanel.Dock="Left"/>
+                        
+                        <StackPanel Orientation="Horizontal" DockPanel.Dock="Right">
+                            <Button Command="{Binding PlayPauseCommand}"
+                                    Style="{StaticResource MaterialDesignIconButton}"
+                                    ToolTip="Play/Pause">
+                                <materialDesign:PackIcon Kind="PlayPause" />
+                            </Button>
+                            <Button Command="{Binding StopPreviewCommand}"
+                                    Style="{StaticResource MaterialDesignIconButton}"
+                                    ToolTip="Stop">
+                                <materialDesign:PackIcon Kind="Stop" />
+                            </Button>
+                        </StackPanel>
+                    </DockPanel>
 
-                    <Border Grid.Row="1" Margin="0,12,0,12" CornerRadius="12" Background="#22000000">
+                    <Border Grid.Row="1" Margin="0,4,0,4" CornerRadius="8" Background="#22000000" ClipToBounds="True">
                         <Grid>
+                            <!-- MediaElement för videouppspelning -->
+                            <MediaElement x:Name="PreviewPlayer"
+                                          Source="{Binding PreviewSource}"
+                                          LoadedBehavior="Manual"
+                                          UnloadedBehavior="Stop"
+                                          Stretch="Uniform"
+                                          MediaOpened="PreviewPlayer_MediaOpened"
+                                          MediaEnded="PreviewPlayer_MediaEnded"/>
+                            
+                            <!-- Placeholder när ingen video laddad -->
                             <TextBlock HorizontalAlignment="Center" VerticalAlignment="Center"
-                                       Text="(Video preview här - LibVLCSharp eller MediaElement)"
-                                       Opacity="0.7"/>
+                                       Text="Select a clip to preview"
+                                       Opacity="0.6"
+                                       Visibility="{Binding HasPreview, Converter={StaticResource InverseBoolToVisibilityConverter}}"/>
                         </Grid>
                     </Border>
 
@@ -103,26 +145,183 @@
 
             <!-- Right: settings -->
             <materialDesign:Card Grid.Column="2" Padding="12" Margin="12,0,0,0">
-                <StackPanel>
-                    <TextBlock Text="Settings" FontSize="18" FontWeight="SemiBold" Margin="0,0,0,12"/>
+                <ScrollViewer VerticalScrollBarVisibility="Auto">
+                    <StackPanel>
+                        <TextBlock Text="Settings" FontSize="18" FontWeight="SemiBold" Margin="0,0,0,12"/>
 
-                    <TextBlock Text="Style preset" FontWeight="SemiBold"/>
-                    <ComboBox ItemsSource="{Binding Presets}" SelectedItem="{Binding SelectedPreset}" Margin="0,6,0,12"/>
+                        <TextBlock Text="Style preset" FontWeight="SemiBold"/>
+                        <ComboBox ItemsSource="{Binding Presets}" SelectedItem="{Binding SelectedPreset}" Margin="0,6,0,12"/>
 
-                    <TextBlock Text="Cut aggressiveness" FontWeight="SemiBold"/>
-                    <Slider Minimum="0" Maximum="100" Value="{Binding Aggressiveness}" Margin="0,6,0,12"/>
+                        <TextBlock Text="Cut aggressiveness" FontWeight="SemiBold"/>
+                        <Slider Minimum="0" Maximum="100" Value="{Binding Aggressiveness}" Margin="0,6,0,12"/>
 
-                    <TextBlock Text="Min clip length (sec)" FontWeight="SemiBold"/>
-                    <Slider Minimum="0.2" Maximum="3.0" Value="{Binding MinClipSeconds}" Margin="0,6,0,12"/>
+                        <TextBlock Text="Min clip length (sec)" FontWeight="SemiBold"/>
+                        <Slider Minimum="0.2" Maximum="3.0" Value="{Binding MinClipSeconds}" Margin="0,6,0,12"/>
 
-                    <TextBlock Text="Max clip length (sec)" FontWeight="SemiBold"/>
-                    <Slider Minimum="1.0" Maximum="10.0" Value="{Binding MaxClipSeconds}" Margin="0,6,0,12"/>
-                </StackPanel>
+                        <TextBlock Text="Max clip length (sec)" FontWeight="SemiBold"/>
+                        <Slider Minimum="1.0" Maximum="10.0" Value="{Binding MaxClipSeconds}" Margin="0,6,0,12"/>
+
+                        <Separator Margin="0,8,0,12"/>
+                        
+                        <TextBlock Text="Analysis" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,8"/>
+                        
+                        <TextBlock Text="Scene detection sensitivity" FontWeight="SemiBold"/>
+                        <TextBlock Text="Lower = more scenes detected" Opacity="0.6" FontSize="11" Margin="0,0,0,4"/>
+                        <Slider Minimum="0.1" Maximum="0.7" Value="{Binding SceneThreshold}" 
+                                TickFrequency="0.1" IsSnapToTickEnabled="True" Margin="0,6,0,12"/>
+                        
+                        <CheckBox Content="Detect audio changes in clips" 
+                                  IsChecked="{Binding DetectAudioChanges}"
+                                  Margin="0,0,0,6"/>
+                        <TextBlock Text="Find volume changes, silence breaks etc." 
+                                   Opacity="0.6" FontSize="11" TextWrapping="Wrap" Margin="0,0,0,8"/>
+                        
+                        <TextBlock Text="Audio sensitivity" FontWeight="SemiBold" 
+                                   IsEnabled="{Binding DetectAudioChanges}"
+                                   Opacity="{Binding DetectAudioChanges, Converter={x:Null}, FallbackValue=0.5}"/>
+                        <TextBlock Text="Higher = more sensitive to volume changes" Opacity="0.6" FontSize="11" Margin="0,0,0,4"/>
+                        <Slider Minimum="0.1" Maximum="1.0" Value="{Binding AudioSensitivity}" 
+                                IsEnabled="{Binding DetectAudioChanges}"
+                                TickFrequency="0.1" IsSnapToTickEnabled="True" Margin="0,6,0,12"/>
+
+                        <Separator Margin="0,8,0,12"/>
+                        
+                        <TextBlock Text="Audio Output" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,8"/>
+                        
+                        <CheckBox Content="Use music track" 
+                                  IsChecked="{Binding UseMusic}"
+                                  Margin="0,0,0,6"/>
+                        <TextBlock Text="Uncheck to keep only original clip audio" 
+                                   Opacity="0.6" FontSize="11" TextWrapping="Wrap" Margin="0,0,0,8"/>
+                        
+                        <CheckBox Content="Also render with original audio" 
+                                  IsChecked="{Binding IncludeOriginalAudioVersion}"
+                                  IsEnabled="{Binding UseMusic}"
+                                  Margin="0,0,0,6"/>
+                        <TextBlock Text="Creates a second file with original clip audio" 
+                                   Opacity="0.6" FontSize="11" TextWrapping="Wrap"/>
+                    </StackPanel>
+                </ScrollViewer>
             </materialDesign:Card>
         </Grid>
 
+        <!-- Timeline Editor (visas efter analys) -->
+        <materialDesign:Card Grid.Row="2" Padding="12" Margin="0,12,0,0"
+                             Visibility="{Binding ShowTimelineEditor, Converter={StaticResource BooleanToVisibilityConverter}}">
+            <StackPanel>
+                <TextBlock Text="Timeline Editor" FontSize="18" FontWeight="SemiBold" Margin="0,0,0,12"/>
+                
+                <!-- In/Out punkter -->
+                <Grid Margin="0,0,0,12">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="16"/>
+                        <ColumnDefinition Width="*"/>
+                    </Grid.ColumnDefinitions>
+                    
+                    <StackPanel Grid.Column="0">
+                        <TextBlock Text="In Point" FontWeight="SemiBold"/>
+                        <Grid>
+                            <Slider Minimum="0" Maximum="{Binding TotalTimelineDuration}" 
+                                    Value="{Binding InPoint}" 
+                                    TickFrequency="0.5" Margin="0,4"/>
+                            <TextBlock Text="{Binding InPoint, StringFormat={}{0:F1}s}" 
+                                       HorizontalAlignment="Right" VerticalAlignment="Top"
+                                       Margin="0,-16,0,0" FontSize="11" Opacity="0.8"/>
+                        </Grid>
+                    </StackPanel>
+                    
+                    <StackPanel Grid.Column="2">
+                        <TextBlock Text="Out Point" FontWeight="SemiBold"/>
+                        <Grid>
+                            <Slider Minimum="0" Maximum="{Binding TotalTimelineDuration}" 
+                                    Value="{Binding OutPoint}" 
+                                    TickFrequency="0.5" Margin="0,4"/>
+                            <TextBlock Text="{Binding OutPoint, StringFormat={}{0:F1}s}" 
+                                       HorizontalAlignment="Right" VerticalAlignment="Top"
+                                       Margin="0,-16,0,0" FontSize="11" Opacity="0.8"/>
+                        </Grid>
+                    </StackPanel>
+                </Grid>
+                
+                <StackPanel Orientation="Horizontal">
+                    <TextBlock Text="Timeline Duration: "/>
+                    <TextBlock Text="{Binding TotalTimelineDuration, StringFormat={}{0:F1}s}" FontWeight="Bold" Margin="4,0"/>
+                    <TextBlock Text=" | Export Duration: " Margin="8,0,0,0"/>
+                    <TextBlock FontWeight="Bold" Foreground="{DynamicResource SecondaryHueMidBrush}">
+                        <TextBlock.Text>
+                            <MultiBinding Converter="{StaticResource ExportDurationConverter}" StringFormat="{}{0}s">
+                                <Binding Path="OutPoint"/>
+                                <Binding Path="InPoint"/>
+                            </MultiBinding>
+                        </TextBlock.Text>
+                    </TextBlock>
+                </StackPanel>
+                
+                <Separator Margin="0,12"/>
+                
+                <TextBlock Text="Clip Sequence" FontWeight="SemiBold" Margin="0,12,0,8"/>
+                <ScrollViewer Height="200" VerticalScrollBarVisibility="Auto">
+                    <ItemsControl ItemsSource="{Binding TimelineEvents}">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate>
+                                <Border BorderBrush="{DynamicResource MaterialDesignDivider}" 
+                                        BorderThickness="1" 
+                                        CornerRadius="4" 
+                                        Padding="8" 
+                                        Margin="0,0,0,6"
+                                        Background="{DynamicResource MaterialDesignCardBackground}">
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="Auto"/>
+                                        </Grid.ColumnDefinitions>
+                                        
+                                        <StackPanel Grid.Column="0">
+                                            <TextBlock Text="{Binding DisplayText}" FontWeight="SemiBold"/>
+                                            <TextBlock Text="{Binding TimelinePosition}" 
+                                                       FontSize="11" 
+                                                       Opacity="0.7"/>
+                                        </StackPanel>
+                                        
+                                        <StackPanel Grid.Column="1" Orientation="Horizontal">
+                                            <Button Style="{StaticResource MaterialDesignIconButton}"
+                                                    Command="{Binding DataContext.MoveTimelineEventUpCommand, RelativeSource={RelativeSource AncestorType=ItemsControl}}"
+                                                    CommandParameter="{Binding}"
+                                                    ToolTip="Move Up">
+                                                <materialDesign:PackIcon Kind="ArrowUp"/>
+                                            </Button>
+                                            <Button Style="{StaticResource MaterialDesignIconButton}"
+                                                    Command="{Binding DataContext.MoveTimelineEventDownCommand, RelativeSource={RelativeSource AncestorType=ItemsControl}}"
+                                                    CommandParameter="{Binding}"
+                                                    ToolTip="Move Down">
+                                                <materialDesign:PackIcon Kind="ArrowDown"/>
+                                            </Button>
+                                            <Button Style="{StaticResource MaterialDesignIconButton}"
+                                                    Command="{Binding DataContext.DuplicateTimelineEventCommand, RelativeSource={RelativeSource AncestorType=ItemsControl}}"
+                                                    CommandParameter="{Binding}"
+                                                    ToolTip="Duplicate">
+                                                <materialDesign:PackIcon Kind="ContentCopy"/>
+                                            </Button>
+                                            <Button Style="{StaticResource MaterialDesignIconButton}"
+                                                    Command="{Binding DataContext.RemoveTimelineEventCommand, RelativeSource={RelativeSource AncestorType=ItemsControl}}"
+                                                    CommandParameter="{Binding}"
+                                                    ToolTip="Remove"
+                                                    Foreground="{DynamicResource ValidationErrorBrush}">
+                                                <materialDesign:PackIcon Kind="Delete"/>
+                                            </Button>
+                                        </StackPanel>
+                                    </Grid>
+                                </Border>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                </ScrollViewer>
+            </StackPanel>
+        </materialDesign:Card>
+        
         <!-- Bottom: progress -->
-        <materialDesign:Card Grid.Row="2" Padding="12" Margin="0,12,0,0">
+        <materialDesign:Card Grid.Row="3" Padding="12" Margin="0,12,0,0">
             <Grid>
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="*"/>
