@@ -2,13 +2,11 @@ using AutoEdit.Media;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Microsoft.Win32;
-using System;
-using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.IO;
+using System.Globalization;
 using System.Linq;
-using System.Threading;
-using System.Threading.Tasks;
+using AutoEdit.Core;
 
 namespace AutoEdit.UI
 {
@@ -18,23 +16,25 @@ namespace AutoEdit.UI
     public partial class MainViewModel : ObservableObject
     {
         public ObservableCollection<ClipItem> Clips { get; } = [];
+        public ObservableCollection<TimelineSegment> TimelineSegments { get; } = [];
 
         [ObservableProperty]
-        [NotifyPropertyChangedFor(nameof(HasPreview))]
-        [NotifyPropertyChangedFor(nameof(PreviewSource))]
+        [NotifyPropertyChangedFor(nameof(HasClips))]
+        [NotifyPropertyChangedFor(nameof(HasSelectedClip))]
         private ClipItem? selectedClip;
 
-        public bool HasPreview => SelectedClip != null;
-        public Uri? PreviewSource => SelectedClip != null ? new Uri(SelectedClip.Path) : null;
+        public bool HasClips => Clips.Count > 0;
+        public bool HasSelectedClip => SelectedClip != null;
+        public bool HasTimeline => TimelineSegments.Count > 0;
 
-        // För MediaElement kontroll från code-behind
-        public Action<MediaElementAction>? MediaElementCallback { get; set; }
-
-        public enum MediaElementAction
+        partial void OnSelectedClipChanged(ClipItem? value)
         {
-            Play,
-            Pause,
-            Stop
+            if (value != null)
+            {
+                PreviewSource = new Uri(value.Path);
+                HasPreview = true;
+                NewBookmarkTime = "";
+            }
         }
 
         [ObservableProperty]
@@ -47,16 +47,91 @@ namespace AutoEdit.UI
         [ObservableProperty] private string progressText = "Idle";
         [ObservableProperty] private string statusText = "Ready";
         [ObservableProperty] private string logLine = "";
+        [ObservableProperty] private string newBookmarkTime = "";
 
-        // Timeline editor
-        public ObservableCollection<TimelineEventViewModel> TimelineEvents { get; } = [];
-        [ObservableProperty] private bool showTimelineEditor = false;
-        [ObservableProperty] private TimelineEventViewModel? selectedTimelineEvent;
 
-        // In/Out points (sekunder från början av färdig video)
-        [ObservableProperty] private double inPoint = 0;
-        [ObservableProperty] private double outPoint = 0;
-        [ObservableProperty] private double totalTimelineDuration = 0;
+        [ObservableProperty]
+        [NotifyCanExecuteChangedFor(nameof(AnalyzeCommand))]
+        private bool useMusic = true;
+
+        // ===== EXPORT SETTINGS =====
+        public ObservableCollection<ExportFormatItem> ExportFormats { get; } =
+        [
+            new(ExportFormat.H264, "H.264 (CPU)", "Bred kompatibilitet, bra kvalitet"),
+            new(ExportFormat.H264_NVENC, "H.264 NVENC (GPU)", "Snabb GPU-rendering, kräver NVIDIA"),
+            new(ExportFormat.H265, "H.265/HEVC (CPU)", "50% mindre filer, långsammare"),
+            new(ExportFormat.HEVC_NVENC, "HEVC NVENC (GPU)", "Snabb HEVC, kräver GTX 1000+"),
+            new(ExportFormat.DNxHR_HQ, "DNxHR HQ (Lossless)", "Professionellt, ~400 MB/min"),
+            new(ExportFormat.DNxHR_SQ, "DNxHR SQ (Standard)", "Professionellt, ~200 MB/min"),
+            new(ExportFormat.DNxHR_LB, "DNxHR LB (Proxy)", "Snabb redigering, ~40 MB/min"),
+        ];
+
+        [ObservableProperty]
+        [NotifyPropertyChangedFor(nameof(ShowBitrateSettings))]
+        [NotifyPropertyChangedFor(nameof(ExportFileExtension))]
+        private ExportFormatItem selectedExportFormat;
+
+        public bool ShowBitrateSettings => SelectedExportFormat?.Format is not (
+            ExportFormat.DNxHR_HQ or ExportFormat.DNxHR_SQ or ExportFormat.DNxHR_LB);
+
+        public string ExportFileExtension => SelectedExportFormat?.Format switch
+        {
+            ExportFormat.DNxHR_HQ or ExportFormat.DNxHR_SQ or ExportFormat.DNxHR_LB => ".mov",
+            _ => ".mp4"
+        };
+
+        public ObservableCollection<FpsOption> FpsOptions { get; } =
+        [
+            new(24, "24 fps (Film)"),
+            new(25, "25 fps (PAL)"),
+            new(30, "30 fps (Standard)"),
+            new(50, "50 fps (PAL HFR)"),
+            new(60, "60 fps (Smooth)"),
+        ];
+
+        [ObservableProperty] private FpsOption selectedFps;
+
+        public ObservableCollection<BitrateOption> BitrateOptions { get; } =
+        [
+            new(8, "8 Mbps (Web/Mobile)"),
+            new(15, "15 Mbps (YouTube 1080p)"),
+            new(20, "20 Mbps (Standard)"),
+            new(35, "35 Mbps (High Quality)"),
+            new(50, "50 Mbps (Very High)"),
+            new(80, "80 Mbps (Master)"),
+            new(100, "100 Mbps (Archive)"),
+        ];
+
+        [ObservableProperty] private BitrateOption selectedBitrate;
+
+        [ObservableProperty] private bool showAdvancedExportSettings = false;
+
+        [RelayCommand]
+        private void ToggleAdvancedExportSettings() => ShowAdvancedExportSettings = !ShowAdvancedExportSettings;
+
+        [ObservableProperty] private bool includeOriginalAudioVersion = false;
+
+        // Preview player
+        [ObservableProperty] private Uri? previewSource;
+        [ObservableProperty] private bool hasPreview = false;
+
+        // Rendered output video
+        [ObservableProperty] private Uri? renderedVideoSource;
+        [ObservableProperty] private bool hasRenderedVideo = false;
+        [ObservableProperty] private string? renderedVideoPath;
+
+        // MediaElement callbacks
+        public Action<MediaElementAction>? MediaElementCallback { get; set; }
+        public Action<string, double, double>? SeekToCallback { get; set; }
+
+        [ObservableProperty] private TimelineSegment? selectedTimelineSegment;
+
+        public enum MediaElementAction
+        {
+            Play,
+            Pause,
+            Stop
+        }
 
         public ObservableCollection<string> Presets { get; } = new() { "Smooth", "Aggressive", "Cinematic" };
         [ObservableProperty] private string selectedPreset = "Cinematic";
@@ -65,106 +140,81 @@ namespace AutoEdit.UI
         [ObservableProperty] private double minClipSeconds = 0.6;
         [ObservableProperty] private double maxClipSeconds = 3.5;
 
-        // Scenigenkänning - lägre värde = fler scener detekteras
-        [ObservableProperty] private double sceneThreshold = 0.3;
-
-        // Ljudskiftnings-detektion
-        [ObservableProperty] private bool detectAudioChanges = false;
-        [ObservableProperty] private double audioSensitivity = 0.5; // 0.1-1.0
-
-        // Rendering alternativ
-        [ObservableProperty]
-        [NotifyCanExecuteChangedFor(nameof(AnalyzeCommand))]
-        private bool useMusic = true;
-
-        [ObservableProperty] private bool includeOriginalAudioVersion = false;
-
         private CancellationTokenSource? _cts;
         private AudioAnalysisResult? _musicAnalysis;
         private List<TimelineEvent>? _timeline;
 
-        [RelayCommand]
-        private void PlayPause()
+        public MainViewModel()
         {
-            MediaElementCallback?.Invoke(MediaElementAction.Play);
+            // Sätt standardvärden för export
+            selectedExportFormat = ExportFormats[0]; // H.264
+            selectedFps = FpsOptions[2]; // 30 fps
+            selectedBitrate = BitrateOptions[2]; // 20 Mbps
+
+            // Uppdatera HasClips när samlingen ändras
+            Clips.CollectionChanged += (s, e) => OnPropertyChanged(nameof(HasClips));
+            TimelineSegments.CollectionChanged += (s, e) => OnPropertyChanged(nameof(HasTimeline));
         }
 
         [RelayCommand]
-        private void StopPreview()
+        private void RemoveClip(ClipItem? clip)
         {
-            MediaElementCallback?.Invoke(MediaElementAction.Stop);
-        }
-
-        [RelayCommand]
-        private void RemoveTimelineEvent(TimelineEventViewModel evt)
-        {
-            if (evt != null && TimelineEvents.Contains(evt))
+            if (clip != null && Clips.Contains(clip))
             {
-                TimelineEvents.Remove(evt);
-                RecalculateTimeline();
+                Clips.Remove(clip);
+                StatusText = $"Removed {clip.FileName}";
+                LogLine = StatusText;
+
+                // Uppdatera knappstatus
+                AnalyzeCommand.NotifyCanExecuteChanged();
+                RenderCommand.NotifyCanExecuteChanged();
             }
         }
 
         [RelayCommand]
-        private void DuplicateTimelineEvent(TimelineEventViewModel evt)
+        private void ClearAllClips()
         {
-            if (evt != null)
-            {
-                var index = TimelineEvents.IndexOf(evt);
-                var duplicate = new TimelineEventViewModel(new TimelineEvent
-                {
-                    SourceFilePath = evt.SourceFilePath,
-                    SourceStart = evt.SourceStart,
-                    Duration = evt.Duration,
-                    TimelineStart = 0 // Will be recalculated
-                });
-                TimelineEvents.Insert(index + 1, duplicate);
-                RecalculateTimeline();
-            }
+            int count = Clips.Count;
+            Clips.Clear();
+            StatusText = $"Removed {count} clips";
+            LogLine = StatusText;
+
+            // Uppdatera knappstatus
+            AnalyzeCommand.NotifyCanExecuteChanged();
+            RenderCommand.NotifyCanExecuteChanged();
         }
 
-        [RelayCommand]
-        private void MoveTimelineEventUp(TimelineEventViewModel evt)
+        /// <summary>
+        /// Lägg till filer (används av drag & drop).
+        /// </summary>
+        public void AddFiles(string[] filePaths)
         {
-            if (evt != null)
+            var videoExtensions = new[] { ".mp4", ".mov", ".mkv", ".avi", ".webm", ".wmv", ".flv", ".m4v" };
+            int addedCount = 0;
+
+            foreach (var path in filePaths)
             {
-                var index = TimelineEvents.IndexOf(evt);
-                if (index > 0)
+                string ext = System.IO.Path.GetExtension(path).ToLowerInvariant();
+                if (videoExtensions.Contains(ext) && File.Exists(path))
                 {
-                    TimelineEvents.Move(index, index - 1);
-                    RecalculateTimeline();
+                    // Kontrollera att filen inte redan finns i listan
+                    if (!Clips.Any(c => c.Path.Equals(path, StringComparison.OrdinalIgnoreCase)))
+                    {
+                        Clips.Add(new ClipItem(path));
+                        addedCount++;
+                    }
                 }
             }
-        }
 
-        [RelayCommand]
-        private void MoveTimelineEventDown(TimelineEventViewModel evt)
-        {
-            if (evt != null)
+            if (addedCount > 0)
             {
-                var index = TimelineEvents.IndexOf(evt);
-                if (index < TimelineEvents.Count - 1)
-                {
-                    TimelineEvents.Move(index, index + 1);
-                    RecalculateTimeline();
-                }
+                StatusText = $"Added {addedCount} clip(s)";
+                LogLine = StatusText;
+
+                // Uppdatera knappstatus
+                AnalyzeCommand.NotifyCanExecuteChanged();
+                RenderCommand.NotifyCanExecuteChanged();
             }
-        }
-
-        private void RecalculateTimeline()
-        {
-            double currentTime = 0;
-            foreach (var evt in TimelineEvents)
-            {
-                evt.TimelineStart = currentTime;
-                currentTime += evt.Duration;
-            }
-
-            TotalTimelineDuration = currentTime;
-
-            // Justera Out point om den är längre än nya längden
-            if (OutPoint > TotalTimelineDuration)
-                OutPoint = TotalTimelineDuration;
         }
 
         [RelayCommand]
@@ -181,17 +231,7 @@ namespace AutoEdit.UI
 
             foreach (var path in dlg.FileNames)
             {
-                var clip = new ClipItem(path);
-
-                // Försök hitta PotPlayer bookmarks
-                var bookmarks = PotPlayerBookmarkParser.ParseBookmarkFile(path);
-                if (bookmarks.Count > 0)
-                {
-                    clip.PotPlayerBookmarks = bookmarks;
-                    clip.HasBookmarks = true;
-                }
-
-                Clips.Add(clip);
+                Clips.Add(new ClipItem(path));
             }
 
             StatusText = $"Loaded {dlg.FileNames.Length} clips.";
@@ -219,6 +259,113 @@ namespace AutoEdit.UI
             LogLine = $"{Path.GetFileName(MusicPath)}";
         }
 
+        [RelayCommand]
+        private void AddBookmark()
+        {
+            if (SelectedClip == null)
+            {
+                StatusText = "Select a clip to add bookmarks.";
+                LogLine = StatusText;
+                return;
+            }
+
+            if (!TryParseBookmarkInput(NewBookmarkTime, out double seconds))
+            {
+                StatusText = "Enter time as seconds or mm:ss.";
+                LogLine = StatusText;
+                return;
+            }
+
+            if (TryAddBookmarkAtSeconds(seconds))
+            {
+                NewBookmarkTime = "";
+            }
+        }
+
+        public bool TryAddBookmarkAtSeconds(double seconds)
+        {
+            if (SelectedClip == null)
+            {
+                StatusText = "Select a clip to add bookmarks.";
+                LogLine = StatusText;
+                return false;
+            }
+
+            if (seconds < 0.0)
+            {
+                StatusText = "Bookmark time must be positive.";
+                LogLine = StatusText;
+                return false;
+            }
+
+            if (SelectedClip.Analysis?.DurationSeconds > 0 &&
+                seconds > SelectedClip.Analysis.DurationSeconds)
+            {
+                StatusText = "Bookmark exceeds clip length.";
+                LogLine = StatusText;
+                return false;
+            }
+
+            var bookmarks = SelectedClip.PotPlayerBookmarks != null
+                ? new List<double>(SelectedClip.PotPlayerBookmarks)
+                : new List<double>();
+
+            if (bookmarks.Any(b => Math.Abs(b - seconds) < 0.05))
+            {
+                StatusText = "Bookmark already exists near that position.";
+                LogLine = StatusText;
+                return false;
+            }
+
+            bookmarks.Add(seconds);
+            bookmarks.Sort();
+
+            SelectedClip.PotPlayerBookmarks = bookmarks;
+            if (SelectedClip.Analysis != null)
+            {
+                SelectedClip.Analysis.Bookmarks = bookmarks;
+            }
+
+            StatusText = $"Added bookmark at {seconds:F2}s.";
+            LogLine = StatusText;
+            return true;
+        }
+
+        [RelayCommand]
+        private void JumpToBookmark(double seconds)
+        {
+            if (SelectedClip == null)
+                return;
+
+            PreviewSource = new Uri(SelectedClip.Path);
+            HasPreview = true;
+            SeekToCallback?.Invoke(SelectedClip.Path, seconds, SelectedClip.Analysis?.DurationSeconds ?? 0);
+
+            StatusText = $"Previewing bookmark at {seconds:F2}s.";
+            LogLine = StatusText;
+        }
+
+        private static bool TryParseBookmarkInput(string? input, out double seconds)
+        {
+            seconds = 0;
+            if (string.IsNullOrWhiteSpace(input)) return false;
+
+            var trimmed = input.Trim();
+
+            // Direct seconds (allows decimals)
+            if (double.TryParse(trimmed, NumberStyles.Float, CultureInfo.InvariantCulture, out seconds))
+                return true;
+
+            // Support mm:ss or hh:mm:ss formats
+            if (TimeSpan.TryParse(trimmed, CultureInfo.InvariantCulture, out var ts))
+            {
+                seconds = ts.TotalSeconds;
+                return true;
+            }
+
+            return false;
+        }
+
         /// <summary>
         /// Analyserar musik och videoklipp för att skapa en redigeringsplan.
         /// </summary>
@@ -232,10 +379,11 @@ namespace AutoEdit.UI
 
             try
             {
-                // 1) Ljudanalys (endast om musik används)
+                // 1) Ljudanalys (endast om UseMusic är aktiverat)
                 if (UseMusic && !string.IsNullOrWhiteSpace(MusicPath))
                 {
                     var audioSvc = CreateAudioService();
+
 
                     var prog = new Progress<(int percent, string message)>(p =>
                     {
@@ -245,15 +393,15 @@ namespace AutoEdit.UI
                         LogLine = p.message;
                     });
 
-                    _musicAnalysis = await audioSvc.AnalyzeAsync(MusicPath!, prog, _cts.Token);
+                    _musicAnalysis = await audioSvc.AnalyzeAsync(MusicPath, prog, _cts.Token);
                 }
                 else
                 {
-                    // Skapa en dummy-analys baserad på total videolängd
                     _musicAnalysis = null;
                     Progress = 35;
+                    StatusText = "Skipping music analysis (no music selected)";
+                    LogLine = StatusText;
                 }
-
                 // 2) Videoanalys (för varje klipp)
                 var videoSvc = CreateVideoService();
                 int clipCount = Clips.Count;
@@ -274,31 +422,28 @@ namespace AutoEdit.UI
                             LogLine = StatusText;
                     });
 
-                    // Använd nya parametrar för ljudskiftnings-detektion
-                    clip.Analysis = await videoSvc.AnalyzeAsync(
-                        clip.Path,
-                        SceneThreshold,
-                        DetectAudioChanges,
-                        AudioSensitivity,
-                        clipProg,
-                        _cts.Token);
+                    // Vi vill inte krascha hela pipelinen om en fil är korrupt, kanske?
+                    // Men för nu kastar vi exception om det felar.
+                    var analysisResult = await videoSvc.AnalyzeAsync(clip.Path, clipProg, _cts.Token);
 
-                    // Om PotPlayer bookmarks finns, lägg till dem som extra intressepunkter
+                    // Lägg till PotPlayer-bokmärken om de finns
                     if (clip.HasBookmarks && clip.PotPlayerBookmarks != null)
                     {
-                        var allScenes = new List<double>(clip.Analysis.SceneChanges);
-                        allScenes.AddRange(clip.PotPlayerBookmarks);
-                        allScenes.Sort();
-
-                        // Skapa ny VideoAnalysisResult med de kombinerade scenerna
+                        // Skapa ny result med bokmärken
                         clip.Analysis = new VideoAnalysisResult
                         {
-                            FilePath = clip.Analysis.FilePath,
-                            DurationSeconds = clip.Analysis.DurationSeconds,
-                            FrameRate = clip.Analysis.FrameRate,
-                            SceneChanges = allScenes.Distinct().ToList(),
-                            AudioChanges = clip.Analysis.AudioChanges
+                            FilePath = analysisResult.FilePath,
+                            DurationSeconds = analysisResult.DurationSeconds,
+                            FrameRate = analysisResult.FrameRate,
+                            SceneChanges = analysisResult.SceneChanges,
+                            Bookmarks = clip.PotPlayerBookmarks
                         };
+
+                        LogLine = $"  → Found {clip.PotPlayerBookmarks.Count} PotPlayer bookmarks!";
+                    }
+                    else
+                    {
+                        clip.Analysis = analysisResult;
                     }
 
                     analyzedVideos.Add(clip.Analysis);
@@ -314,28 +459,14 @@ namespace AutoEdit.UI
                     analyzedVideos,
                     MinClipSeconds,
                     MaxClipSeconds,
-                    Aggressiveness,
-                    UseMusic);
+                    Aggressiveness);
+
+                RefreshTimelineSegmentsFromModel();
 
                 Progress = 100;
                 StatusText = $"Timeline ready. {_timeline.Count} cuts created.";
                 LogLine = StatusText;
                 ProgressText = "Ready to render";
-
-                // Populera timeline editor
-                TimelineEvents.Clear();
-                foreach (var evt in _timeline)
-                {
-                    TimelineEvents.Add(new TimelineEventViewModel(evt));
-                }
-
-                // Sätt In/Out till hela längden som default
-                TotalTimelineDuration = _timeline.Sum(e => e.Duration);
-                InPoint = 0;
-                OutPoint = TotalTimelineDuration;
-
-                // Visa timeline editor
-                ShowTimelineEditor = true;
             }
             catch (OperationCanceledException)
             {
@@ -366,20 +497,23 @@ namespace AutoEdit.UI
         [RelayCommand(CanExecute = nameof(CanRender))]
         private async Task RenderAsync()
         {
-            if (TimelineEvents.Count == 0)
+            var timelineToRender = _timeline;
+
+            if (timelineToRender == null || timelineToRender.Count == 0)
             {
                 StatusText = "No timeline generated yet. Run Analyze first.";
                 return;
             }
 
-            // Bygg timeline från editor-events och applicera In/Out punkter
-            var renderTimeline = BuildRenderTimeline();
+            // Bestäm filändelse baserat på valt format
+            string ext = ExportFileExtension;
+            string filter = ext == ".mov" ? "QuickTime MOV|*.mov" : "MP4 Video|*.mp4";
 
             var saveDlg = new SaveFileDialog
             {
                 Title = "Save Video",
-                Filter = "MP4 Video|*.mp4",
-                FileName = "AutoEdit_Output.mp4"
+                Filter = filter,
+                FileName = $"AutoEdit_Output{ext}"
             };
 
             if (saveDlg.ShowDialog() != true) return;
@@ -388,11 +522,22 @@ namespace AutoEdit.UI
             _cts = new CancellationTokenSource();
             IsBusy = true;
             Progress = 0;
-            ProgressText = "Rendering...";
+            ProgressText = $"Rendering ({SelectedExportFormat?.Name})...";
 
             try
             {
                 var renderer = CreateRenderingService();
+
+                // Bygg ExportSettings från UI-val
+                var exportSettings = new ExportSettings
+                {
+                    Format = SelectedExportFormat?.Format ?? ExportFormat.H264,
+                    Fps = SelectedFps?.Fps ?? 30,
+                    BitrateMbps = SelectedBitrate?.Mbps ?? 20,
+                    AudioBitrateKbps = 320,
+                    Width = 1920,
+                    Height = 1080
+                };
 
                 var prog = new Progress<(int percent, string message)>(p =>
                 {
@@ -401,17 +546,17 @@ namespace AutoEdit.UI
                     LogLine = p.message;
                 });
 
-                await renderer.RenderAsync(renderTimeline, UseMusic ? MusicPath : null, outputPath, IncludeOriginalAudioVersion, prog, _cts.Token);
+                string? musicToUse = UseMusic ? MusicPath : null;
+                await renderer.RenderAsync(timelineToRender, musicToUse, outputPath, exportSettings, prog, _cts.Token);
 
                 StatusText = "Render complete.";
-                string savedFiles = IncludeOriginalAudioVersion && UseMusic
-                    ? $"Saved to: {outputPath} (+ original audio version)"
-                    : $"Saved to: {outputPath}";
-                LogLine = savedFiles;
+                LogLine = $"Saved to: {outputPath}";
                 ProgressText = "Done";
 
-                // Öppna mappen (valfritt)
-                // System.Diagnostics.Process.Start("explorer.exe", $"/select,\"{outputPath}\"");
+                // Ladda den renderade videon för preview
+                RenderedVideoPath = outputPath;
+                RenderedVideoSource = new Uri(outputPath);
+                HasRenderedVideo = true;
             }
             catch (OperationCanceledException)
             {
@@ -434,10 +579,134 @@ namespace AutoEdit.UI
             }
         }
 
-        private bool CanRender() => !IsBusy && ShowTimelineEditor && TimelineEvents.Count > 0;
+        private bool CanRender() => !IsBusy && _timeline != null && _timeline.Count > 0;
 
         [RelayCommand]
         private void Cancel() => _cts?.Cancel();
+
+        [RelayCommand]
+        private void ViewRenderedVideo()
+        {
+            if (!string.IsNullOrEmpty(RenderedVideoPath))
+            {
+                // Ladda videon i preview-spelaren
+                PreviewSource = new Uri(RenderedVideoPath);
+                HasPreview = true;
+
+                // Trigga play
+                MediaElementCallback?.Invoke(MediaElementAction.Play);
+            }
+        }
+
+        [RelayCommand]
+        private void PreviewTimelineSegment(TimelineSegment? segment)
+        {
+            if (segment == null) return;
+
+            PreviewSource = new Uri(segment.SourceFilePath);
+            HasPreview = true;
+            SeekToCallback?.Invoke(segment.SourceFilePath, segment.SourceStart, segment.Duration);
+
+            StatusText = $"Previewing segment #{segment.Order}";
+            LogLine = StatusText;
+        }
+
+        [RelayCommand]
+        private void MoveTimelineSegmentUp(TimelineSegment? segment)
+        {
+            if (segment == null || IsBusy) return;
+
+            int index = TimelineSegments.IndexOf(segment);
+            if (index <= 0) return;
+
+            TimelineSegments.Move(index, index - 1);
+            RecalculateTimelineFromSegments();
+
+            StatusText = $"Moved {segment.SourceFileName} earlier in timeline.";
+            LogLine = StatusText;
+        }
+
+        [RelayCommand]
+        private void MoveTimelineSegmentDown(TimelineSegment? segment)
+        {
+            if (segment == null || IsBusy) return;
+
+            int index = TimelineSegments.IndexOf(segment);
+            if (index < 0 || index >= TimelineSegments.Count - 1) return;
+
+            TimelineSegments.Move(index, index + 1);
+            RecalculateTimelineFromSegments();
+
+            StatusText = $"Moved {segment.SourceFileName} later in timeline.";
+            LogLine = StatusText;
+        }
+
+        [RelayCommand]
+        private void PlayPause()
+        {
+            MediaElementCallback?.Invoke(MediaElementAction.Play);
+        }
+
+        [RelayCommand]
+        private void StopPreview()
+        {
+            MediaElementCallback?.Invoke(MediaElementAction.Stop);
+        }
+
+        private void RecalculateTimelineFromSegments()
+        {
+            double currentTimeline = 0;
+            int order = 1;
+
+            foreach (var segment in TimelineSegments)
+            {
+                segment.Order = order++;
+                segment.TimelineStart = currentTimeline;
+                currentTimeline += segment.Duration;
+            }
+
+            _timeline = TimelineSegments
+                .Select(seg => new TimelineEvent
+                {
+                    SourceFilePath = seg.SourceFilePath,
+                    SourceStart = seg.SourceStart,
+                    Duration = seg.Duration,
+                    TimelineStart = seg.TimelineStart
+                })
+                .ToList();
+
+            OnPropertyChanged(nameof(HasTimeline));
+            RenderCommand.NotifyCanExecuteChanged();
+        }
+
+        private void RefreshTimelineSegmentsFromModel()
+        {
+            TimelineSegments.Clear();
+
+            if (_timeline == null || _timeline.Count == 0)
+            {
+                OnPropertyChanged(nameof(HasTimeline));
+                return;
+            }
+
+            double currentStart = 0;
+            int order = 1;
+            foreach (var evt in _timeline.OrderBy(t => t.TimelineStart))
+            {
+                var segment = new TimelineSegment(
+                    order++,
+                    evt.SourceFilePath,
+                    evt.SourceStart,
+                    evt.Duration,
+                    evt.TimelineStart > 0 ? evt.TimelineStart : currentStart);
+
+                currentStart = segment.TimelineStart + segment.Duration;
+                TimelineSegments.Add(segment);
+            }
+
+            OnPropertyChanged(nameof(HasTimeline));
+            RenderCommand.NotifyCanExecuteChanged();
+        }
 
         // Simulerar ett steg i en operation med förloppsindikering
         private async Task StepAsync(string text, double from, double to, CancellationToken ct)
@@ -480,95 +749,96 @@ namespace AutoEdit.UI
             var runner = new FfmpegRunner(ffmpegExe);
             return new RenderingService(runner);
         }
-
-        private List<TimelineEvent> BuildRenderTimeline()
-        {
-            var timeline = new List<TimelineEvent>();
-            double currentTime = 0;
-
-            foreach (var evt in TimelineEvents)
-            {
-                // Kolla om detta event ligger inom In/Out range
-                double eventEnd = currentTime + evt.Duration;
-
-                if (eventEnd <= InPoint)
-                {
-                    // Event är helt före In-punkten, skippa
-                    currentTime += evt.Duration;
-                    continue;
-                }
-
-                if (currentTime >= OutPoint)
-                {
-                    // Event är helt efter Out-punkten, sluta
-                    break;
-                }
-
-                // Event överlappar In/Out range, klipp om nödvändigt
-                double adjustedStart = evt.SourceStart;
-                double adjustedDuration = evt.Duration;
-                double adjustedTimelineStart = currentTime;
-
-                if (currentTime < InPoint)
-                {
-                    // Event börjar före In-punkten, klipp början
-                    double trimAmount = InPoint - currentTime;
-                    adjustedStart += trimAmount;
-                    adjustedDuration -= trimAmount;
-                    adjustedTimelineStart = InPoint;
-                }
-
-                if (eventEnd > OutPoint)
-                {
-                    // Event slutar efter Out-punkten, klipp slutet
-                    double trimAmount = eventEnd - OutPoint;
-                    adjustedDuration -= trimAmount;
-                }
-
-                timeline.Add(new TimelineEvent
-                {
-                    SourceFilePath = evt.SourceFilePath,
-                    SourceStart = adjustedStart,
-                    Duration = adjustedDuration,
-                    TimelineStart = adjustedTimelineStart - InPoint // Normalisera till 0
-                });
-
-                currentTime += evt.Duration;
-            }
-
-            return timeline;
-        }
     }
 
-    public partial class TimelineEventViewModel : ObservableObject
+    public partial class TimelineSegment : ObservableObject
     {
-        public TimelineEventViewModel(TimelineEvent evt)
+        public TimelineSegment(int order, string sourceFilePath, double sourceStart, double duration, double timelineStart)
         {
-            SourceFilePath = evt.SourceFilePath;
-            SourceStart = evt.SourceStart;
-            Duration = evt.Duration;
-            TimelineStart = evt.TimelineStart;
+            Order = order;
+            SourceFilePath = sourceFilePath;
+            SourceStart = sourceStart;
+            Duration = duration;
+            TimelineStart = timelineStart;
         }
 
         public string SourceFilePath { get; }
-        public string FileName => System.IO.Path.GetFileName(SourceFilePath);
+        public string SourceFileName => Path.GetFileName(SourceFilePath);
 
+        [ObservableProperty] private int order;
         [ObservableProperty] private double sourceStart;
         [ObservableProperty] private double duration;
         [ObservableProperty] private double timelineStart;
 
-        public string DisplayText => $"{FileName} ({SourceStart:F1}s - {SourceStart + Duration:F1}s) = {Duration:F1}s";
-        public string TimelinePosition => $"@ {TimelineStart:F1}s";
+        public string TimelineLabel => $"{Order}. {SourceFileName}";
+        public string DetailLabel => $"{FormatTime(TimelineStart)} → {FormatTime(TimelineStart + Duration)} ({Duration:F1}s)";
+
+        partial void OnOrderChanged(int value) => OnPropertyChanged(nameof(TimelineLabel));
+        partial void OnDurationChanged(double value) => OnPropertyChanged(nameof(DetailLabel));
+        partial void OnTimelineStartChanged(double value) => OnPropertyChanged(nameof(DetailLabel));
+
+        private static string FormatTime(double seconds)
+        {
+            var safeSeconds = Math.Max(0, seconds);
+            string format = safeSeconds >= 3600 ? @"h\:mm\:ss" : @"m\:ss";
+            return TimeSpan.FromSeconds(safeSeconds).ToString(format);
+        }
     }
 
-    public sealed class ClipItem
+    public partial class ClipItem : ObservableObject
     {
         public string Path { get; }
         public string FileName => System.IO.Path.GetFileName(Path);
         public VideoAnalysisResult? Analysis { get; set; }
-        public List<double>? PotPlayerBookmarks { get; set; }
-        public bool HasBookmarks { get; set; }
 
-        public ClipItem(string path) => Path = path;
+        [ObservableProperty] private List<double>? potPlayerBookmarks;
+        [ObservableProperty] private bool hasBookmarks;
+
+        public ClipItem(string path)
+        {
+            Path = path;
+            LoadPotPlayerBookmarks();
+        }
+
+        private void LoadPotPlayerBookmarks()
+        {
+            // Sök efter .pbf-fil med samma namn som videon
+            string dir = System.IO.Path.GetDirectoryName(Path) ?? "";
+            string nameWithoutExt = System.IO.Path.GetFileNameWithoutExtension(Path);
+            string pbfPath = System.IO.Path.Combine(dir, nameWithoutExt + ".pbf");
+
+            if (File.Exists(pbfPath))
+            {
+                PotPlayerBookmarks = PotPlayerBookmarkParser.ParseBookmarks(pbfPath);
+                HasBookmarks = PotPlayerBookmarks != null && PotPlayerBookmarks.Count > 0;
+            }
+            else
+            {
+                PotPlayerBookmarks = null;
+                HasBookmarks = false;
+            }
+        }
+
+        partial void OnPotPlayerBookmarksChanged(List<double>? value)
+        {
+            HasBookmarks = value != null && value.Count > 0;
+        }
+    }
+
+    // ===== EXPORT SETTINGS HELPER CLASSES =====
+
+    public record ExportFormatItem(ExportFormat Format, string Name, string Description)
+    {
+        public override string ToString() => Name;
+    }
+
+    public record FpsOption(double Fps, string Name)
+    {
+        public override string ToString() => Name;
+    }
+
+    public record BitrateOption(double Mbps, string Name)
+    {
+        public override string ToString() => Name;
     }
 }
