@@ -78,11 +78,45 @@ namespace AutoEdit.UI
 
         private void SeekToPosition(string filePath, double startSeconds, double durationSeconds)
         {
+            var sameSource = PreviewPlayer.Source != null &&
+                string.Equals(PreviewPlayer.Source.LocalPath, filePath, StringComparison.OrdinalIgnoreCase);
+
+            if (sameSource && PreviewPlayer.NaturalDuration.HasTimeSpan)
+            {
+                SeekPreviewToSeconds(startSeconds);
+                _pendingSeekSeconds = null;
+                EnsurePreviewPlayback();
+                return;
+            }
+
             // Ladda videon och seekar till rätt position
             _pendingSeekSeconds = startSeconds;
-            PreviewPlayer.Source = new Uri(filePath);
+            PreviewPlayer.SetCurrentValue(MediaElement.SourceProperty, new Uri(filePath));
             PreviewPlayer.Play();
             _isPlaying = true;
+        }
+
+        private void SeekPreviewToSeconds(double startSeconds)
+        {
+            double seekSeconds = Math.Max(0, startSeconds);
+            if (_totalDuration.TotalSeconds > 0)
+            {
+                seekSeconds = Math.Min(seekSeconds, _totalDuration.TotalSeconds);
+            }
+
+            PreviewPlayer.Position = TimeSpan.FromSeconds(seekSeconds);
+            if (!_isDraggingSlider)
+            {
+                SeekSlider.Value = seekSeconds;
+            }
+            UpdateTimeDisplay();
+        }
+
+        private void EnsurePreviewPlayback()
+        {
+            PreviewPlayer.Play();
+            _isPlaying = true;
+            _positionTimer.Start();
         }
 
         private void HandleMediaElementAction(MainViewModel.MediaElementAction action)
@@ -154,22 +188,14 @@ namespace AutoEdit.UI
 
             if (_pendingSeekSeconds.HasValue)
             {
-                double seekSeconds = Math.Max(0, _pendingSeekSeconds.Value);
-                if (_totalDuration.TotalSeconds > 0)
-                {
-                    seekSeconds = Math.Min(seekSeconds, _totalDuration.TotalSeconds);
-                }
-
-                PreviewPlayer.Position = TimeSpan.FromSeconds(seekSeconds);
+                SeekPreviewToSeconds(_pendingSeekSeconds.Value);
                 _pendingSeekSeconds = null;
             }
 
             UpdateTimeDisplay();
 
             // Auto-play när video laddas
-            PreviewPlayer.Play();
-            _isPlaying = true;
-            _positionTimer.Start();
+            EnsurePreviewPlayback();
         }
 
         private void PreviewPlayer_MediaEnded(object sender, RoutedEventArgs e)

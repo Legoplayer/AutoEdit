@@ -6,6 +6,7 @@
     "configurations": [
         
         {
+   
             "name": ".NET Meteor Debugger",
             "type": "dotnet-meteor.debugger",
             "request": "launch",
