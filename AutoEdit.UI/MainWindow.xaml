@@ -9,6 +9,7 @@
     Height="750"
     AllowsTransparency="True"
     Background="Transparent"
+    TextElement.FontFamily="{DynamicResource AppFontFamily}"
     TextElement.FontSize="14"
     WindowStartupLocation="CenterScreen"
     WindowStyle="None"
@@ -17,20 +18,15 @@
     <!--  Main blur container with glass morphism  -->
     <Border
         Margin="10"
+        Background="{DynamicResource AppWindowBackgroundBrush}"
         ClipToBounds="True"
         CornerRadius="16">
-        <Border.Background>
-            <LinearGradientBrush StartPoint="0,0" EndPoint="1,1">
-                <GradientStop Offset="0" Color="#FF1A1A2E" />
-                <GradientStop Offset="1" Color="#FF16213E" />
-            </LinearGradientBrush>
-        </Border.Background>
         <Border.Effect>
             <DropShadowEffect
-                BlurRadius="40"
-                Opacity="0."
+                BlurRadius="48"
+                Opacity="0.35"
                 ShadowDepth="0"
-                Color="#6B46C1" />
+                Color="{DynamicResource AppGlowColor}" />
         </Border.Effect>
 
         <Grid>
@@ -41,13 +37,8 @@
                     Canvas.Top="-100"
                     Width="400"
                     Height="400"
+                    Fill="{DynamicResource AppBlobPrimaryBrush}"
                     Opacity="0.15">
-                    <Ellipse.Fill>
-                        <RadialGradientBrush>
-                            <GradientStop Offset="0" Color="#6B46C1" />
-                            <GradientStop Offset="1" Color="Transparent" />
-                        </RadialGradientBrush>
-                    </Ellipse.Fill>
                     <Ellipse.Triggers>
                         <EventTrigger RoutedEvent="Loaded">
                             <BeginStoryboard>
@@ -73,13 +64,8 @@
                     Canvas.Top="400"
                     Width="500"
                     Height="500"
+                    Fill="{DynamicResource AppBlobSecondaryBrush}"
                     Opacity="0.1">
-                    <Ellipse.Fill>
-                        <RadialGradientBrush>
-                            <GradientStop Offset="0" Color="#00D2FC" />
-                            <GradientStop Offset="1" Color="Transparent" />
-                        </RadialGradientBrush>
-                    </Ellipse.Fill>
                     <Ellipse.Triggers>
                         <EventTrigger RoutedEvent="Loaded">
                             <BeginStoryboard>
@@ -105,14 +91,8 @@
             <Border
                 Margin="0"
                 BorderThickness="1"
+                BorderBrush="{DynamicResource AppWindowBorderBrush}"
                 CornerRadius="16">
-                <Border.BorderBrush>
-                    <LinearGradientBrush StartPoint="0,0" EndPoint="1,1">
-                        <GradientStop Offset="0" Color="#40FFFFFF" />
-                        <GradientStop Offset="0.5" Color="#106B46C1" />
-                        <GradientStop Offset="1" Color="#40FFFFFF" />
-                    </LinearGradientBrush>
-                </Border.BorderBrush>
 
                 <Grid Margin="20">
                     <Grid.RowDefinitions>
@@ -346,7 +326,17 @@
                                                 ItemContainerStyle="{StaticResource AnimatedListBoxItem}"
                                                 ItemsSource="{Binding Clips}"
                                                 SelectedItem="{Binding SelectedClip}"
+                                                VirtualizingPanel.IsVirtualizing="True"
+                                                VirtualizingPanel.VirtualizationMode="Recycling"
+                                                VirtualizingPanel.CacheLength="4"
+                                                VirtualizingPanel.CacheLengthUnit="Item"
+                                                ScrollViewer.CanContentScroll="True"
                                                 Visibility="{Binding HasClips, Converter={StaticResource BooleanToVisibilityConverter}}">
+                                                <ListBox.ItemsPanel>
+                                                    <ItemsPanelTemplate>
+                                                        <VirtualizingStackPanel />
+                                                    </ItemsPanelTemplate>
+                                                </ListBox.ItemsPanel>
                                                 <ListBox.ItemTemplate>
                                                     <DataTemplate>
                                                         <Grid>
@@ -552,7 +542,7 @@
                                 <Border
                                     Grid.Row="1"
                                     Margin="0,4,0,4"
-                                    Background="#22000000"
+                                    Background="{DynamicResource AppSurfaceBrush}"
                                     ClipToBounds="True"
                                     CornerRadius="8">
                                     <Grid>
@@ -694,11 +684,12 @@
                                         FontWeight="SemiBold"
                                         Text="Settings" />
 
-                                    <TextBlock FontWeight="SemiBold" Text="Style preset" />
+                                    <TextBlock FontWeight="SemiBold" Text="Theme" />
                                     <ComboBox
                                         Margin="0,6,0,12"
-                                        ItemsSource="{Binding Presets}"
-                                        SelectedItem="{Binding SelectedPreset}" />
+                                        DisplayMemberPath="Name"
+                                        ItemsSource="{Binding Themes}"
+                                        SelectedItem="{Binding SelectedTheme}" />
 
                                     <TextBlock FontWeight="SemiBold" Text="Cut aggressiveness" />
                                     <Slider
@@ -783,7 +774,17 @@
                                                 ItemContainerStyle="{StaticResource AnimatedListBoxItem}"
                                                 ItemsSource="{Binding TimelineSegments}"
                                                 SelectedItem="{Binding SelectedTimelineSegment}"
-                                                ScrollViewer.VerticalScrollBarVisibility="Auto">
+                                                ScrollViewer.VerticalScrollBarVisibility="Auto"
+                                                VirtualizingPanel.IsVirtualizing="True"
+                                                VirtualizingPanel.VirtualizationMode="Recycling"
+                                                VirtualizingPanel.CacheLength="6"
+                                                VirtualizingPanel.CacheLengthUnit="Item"
+                                                ScrollViewer.CanContentScroll="True">
+                                                <ListBox.ItemsPanel>
+                                                    <ItemsPanelTemplate>
+                                                        <VirtualizingStackPanel />
+                                                    </ItemsPanelTemplate>
+                                                </ListBox.ItemsPanel>
                                                 <ListBox.ItemTemplate>
                                                     <DataTemplate>
                                                         <Border

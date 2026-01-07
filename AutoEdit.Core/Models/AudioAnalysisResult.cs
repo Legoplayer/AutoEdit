@@ -1,4 +1,4 @@
-namespace AutoEdit.Media;
+namespace AutoEdit.Core;
 
 public sealed class AudioAnalysisResult
 {
@@ -17,5 +17,3 @@ public sealed class AudioAnalysisResult
     // beat-tider i sekunder
     public required double[] BeatTimes { get; init; }
 }
-
- 

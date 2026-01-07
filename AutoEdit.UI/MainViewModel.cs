@@ -6,7 +6,6 @@ using System.Collections.ObjectModel;
 using System.IO;
 using System.Globalization;
 using System.Linq;
-using AutoEdit.Core;
 
 namespace AutoEdit.UI
 {
@@ -133,8 +132,22 @@ namespace AutoEdit.UI
             Stop
         }
 
-        public ObservableCollection<string> Presets { get; } = new() { "Smooth", "Aggressive", "Cinematic" };
-        [ObservableProperty] private string selectedPreset = "Cinematic";
+        public ObservableCollection<ThemeOption> Themes { get; } =
+        [
+            new("Nebula", AppTheme.Nebula),
+            new("Solstice", AppTheme.Solstice),
+            new("Graphite", AppTheme.Graphite)
+        ];
+
+        [ObservableProperty] private ThemeOption? selectedTheme;
+
+        partial void OnSelectedThemeChanged(ThemeOption? value)
+        {
+            if (value == null)
+                return;
+
+            ThemeManager.ApplyTheme(value.Theme);
+        }
 
         [ObservableProperty] private double aggressiveness = 60;
         [ObservableProperty] private double minClipSeconds = 0.6;
@@ -150,6 +163,7 @@ namespace AutoEdit.UI
             selectedExportFormat = ExportFormats[0]; // H.264
             selectedFps = FpsOptions[2]; // 30 fps
             selectedBitrate = BitrateOptions[2]; // 20 Mbps
+            SelectedTheme = Themes[0];
 
             // Uppdatera HasClips när samlingen ändras
             Clips.CollectionChanged += (s, e) => OnPropertyChanged(nameof(HasClips));
@@ -823,6 +837,18 @@ namespace AutoEdit.UI
         {
             HasBookmarks = value != null && value.Count > 0;
         }
+    }
+
+    public sealed class ThemeOption
+    {
+        public ThemeOption(string name, AppTheme theme)
+        {
+            Name = name;
+            Theme = theme;
+        }
+
+        public string Name { get; }
+        public AppTheme Theme { get; }
     }
 
     // ===== EXPORT SETTINGS HELPER CLASSES =====

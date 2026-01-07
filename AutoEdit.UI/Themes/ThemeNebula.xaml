@@ -1,0 +1,46 @@
+<ResourceDictionary
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:materialDesign="http://materialdesigninxaml.net/winfx/xaml/themes">
+    <materialDesign:BundledTheme
+        x:Key="MaterialDesignBundledTheme"
+        BaseTheme="Dark"
+        PrimaryColor="Cyan"
+        SecondaryColor="DeepOrange" />
+
+    <FontFamily x:Key="AppFontFamily">Bahnschrift</FontFamily>
+
+    <LinearGradientBrush x:Key="AppWindowBackgroundBrush" StartPoint="0,0" EndPoint="1,1">
+        <GradientStop Offset="0" Color="#0B111B" />
+        <GradientStop Offset="1" Color="#152434" />
+    </LinearGradientBrush>
+
+    <LinearGradientBrush x:Key="AppWindowBorderBrush" StartPoint="0,0" EndPoint="1,1">
+        <GradientStop Offset="0" Color="#40FFFFFF" />
+        <GradientStop Offset="0.5" Color="#3328D6D9" />
+        <GradientStop Offset="1" Color="#30FFFFFF" />
+    </LinearGradientBrush>
+
+    <RadialGradientBrush x:Key="AppBlobPrimaryBrush">
+        <GradientStop Offset="0" Color="#37C6FF" />
+        <GradientStop Offset="1" Color="Transparent" />
+    </RadialGradientBrush>
+
+    <RadialGradientBrush x:Key="AppBlobSecondaryBrush">
+        <GradientStop Offset="0" Color="#FF7A4D" />
+        <GradientStop Offset="1" Color="Transparent" />
+    </RadialGradientBrush>
+
+    <SolidColorBrush x:Key="AppCardBackgroundBrush" Color="#E0182330" />
+    <SolidColorBrush x:Key="AppCardBorderBrush" Color="#2AFFFFFF" />
+    <SolidColorBrush x:Key="AppSurfaceBrush" Color="#1AFFFFFF" />
+
+    <LinearGradientBrush x:Key="AppAccentGradientBrush" StartPoint="0,0.5" EndPoint="1,0.5">
+        <GradientStop Offset="0" Color="#37C6FF" />
+        <GradientStop Offset="0.5" Color="#FF7A4D" />
+        <GradientStop Offset="1" Color="#37C6FF" />
+    </LinearGradientBrush>
+
+    <Color x:Key="AppGlowColor">#37C6FF</Color>
+    <Color x:Key="AppShadowColor">#1A0B0F16</Color>
+</ResourceDictionary>

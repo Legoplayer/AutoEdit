@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.IO;
 using System.Text;
 using System.Threading;
@@ -16,10 +17,27 @@ public sealed class RenderingService
         _ffmpeg = ffmpeg;
     }
 
+    /// <summary>
+    /// Renderar video med standardinställningar (H.264, 30fps, 20Mbps).
+    /// </summary>
+    public Task RenderAsync(
+        List<TimelineEvent> timeline,
+        string? musicPath,
+        string outputPath,
+        IProgress<(int percent, string message)>? progress,
+        CancellationToken ct)
+    {
+        return RenderAsync(timeline, musicPath, outputPath, new ExportSettings(), progress, ct);
+    }
+
+    /// <summary>
+    /// Renderar video med anpassade exportinställningar.
+    /// </summary>
     public async Task RenderAsync(
         List<TimelineEvent> timeline,
-        string musicPath,
+        string? musicPath,
         string outputPath,
+        ExportSettings settings,
         IProgress<(int percent, string message)>? progress,
         CancellationToken ct)
     {
@@ -30,71 +48,90 @@ public sealed class RenderingService
         Directory.CreateDirectory(tempDir);
 
         var segmentFiles = new List<string>();
+        
+        // Bestäm segment-filändelse baserat på format
+        string segmentExt = settings.Format switch
+        {
+            ExportFormat.DNxHR_HQ or ExportFormat.DNxHR_SQ or ExportFormat.DNxHR_LB => ".mov",
+            _ => ".mp4"
+        };
 
         try
         {
-            // 1. Rendera varje segment till ett temporärt format (normaliserar formatet)
-            // Vi siktar på 1920x1080, 30fps, ingen ljud på klippen (vi lägger på musik sen)
+            // Hämta encoder-inställningar från ExportSettings
+            string videoEncoder = settings.GetVideoEncoderArgs();
+            string videoFilter = settings.GetVideoFilterArgs();
+            string decoderArgs = settings.GetDecoderArgs();
             
             int totalSegments = timeline.Count;
+            string formatName = ExportSettings.FormatNames.GetValueOrDefault(settings.Format, "Video");
             
             for (int i = 0; i < totalSegments; i++)
             {
                 ct.ThrowIfCancellationRequested();
 
                 var evt = timeline[i];
-                string segmentName = $"seg_{i:0000}.mp4";
+                string segmentName = $"seg_{i:0000}{segmentExt}";
                 string segmentPath = Path.Combine(tempDir, segmentName);
                 segmentFiles.Add(segmentPath);
 
-                progress?.Report(((int)((double)i / totalSegments * 90), $"Rendering segment {i + 1}/{totalSegments}..."));
+                int pct = (int)((double)i / totalSegments * 85);
+                progress?.Report((pct, $"[{formatName}] Segment {i + 1}/{totalSegments}..."));
 
-                // Filter för att normalisera video:
-                // - scale: skala så det ryms i 1920x1080 (behåll aspect ratio)
-                // - pad: fyll ut med svart till 1920x1080 (centrerat)
-                // - setsar: sätt pixel aspect ratio till 1:1
-                // - fps: tvinga 30 fps
-                string vf = "scale=1920:1080:force_original_aspect_ratio=decrease,pad=1920:1080:(ow-iw)/2:(oh-ih)/2:color=black,setsar=1,fps=30";
-                
-                // -ss före -i för snabb sökning (kanske inte frame-perfect men snabbt)
-                // -an: inget ljud från klippet
-                // -preset ultrafast: snabb rendering (vi kan ändra till medium om vi vill ha mindre filer/bättre kvalitet)
-                string args = $"-y -ss {evt.SourceStart.ToString(System.Globalization.CultureInfo.InvariantCulture)} " +
-                              $"-t {evt.Duration.ToString(System.Globalization.CultureInfo.InvariantCulture)} " +
+                // Bygg FFmpeg-argument
+                string args = $"-y {decoderArgs} -ss {evt.SourceStart.ToString(CultureInfo.InvariantCulture)} " +
+                              $"-t {evt.Duration.ToString(CultureInfo.InvariantCulture)} " +
                               $"-i \"{evt.SourceFilePath}\" " +
-                              $"-vf \"{vf}\" " +
-                              $"-c:v libx264 -preset ultrafast -crf 23 -an " +
+                              $"-vf \"{videoFilter}\" " +
+                              $"{videoEncoder} -an " +
                               $"\"{segmentPath}\"";
 
                 await _ffmpeg.RunAsync(args, ct);
             }
 
             // 2. Skapa concat-lista
+            progress?.Report((88, "Concatenating segments..."));
+            
             string listPath = Path.Combine(tempDir, "concat_list.txt");
             var sb = new StringBuilder();
             foreach (var f in segmentFiles)
             {
-                sb.AppendLine($"file '{f}'");
+                // FFmpeg concat kräver forward slashes på Windows
+                string ffmpegPath = f.Replace('\\', '/');
+                sb.AppendLine($"file '{ffmpegPath}'");
             }
             await File.WriteAllTextAsync(listPath, sb.ToString(), ct);
 
-            // 3. Slå ihop allt och lägg på musik
-            progress?.Report((95, "Finalizing video..."));
+             // 3. Slå ihop allt och lägg på musik (om tillgänglig)
+            progress?.Report((92, "Finalizing..."));
 
-            // -shortest: sluta när kortaste strömmen (video eller ljud) tar slut
-            // (Eftersom vi byggde tidslinjen efter musiken borde de matcha bra, 
-            // men om musiken är längre klipper vi videon när clipsen är slut, eller tvärtom)
-            
-            string finalArgs = $"-y -f concat -safe 0 -i \"{listPath}\" " +
-                               $"-i \"{musicPath}\" " +
-                               $"-map 0:v -map 1:a " +
-                               $"-c:v copy -c:a aac -b:a 192k " +
-                               $"-shortest " +
-                               $"\"{outputPath}\"";
+            string finalVideoCodec = "-c:v copy";
+            string finalArgs;
+                       if (!string.IsNullOrWhiteSpace(musicPath) && File.Exists(musicPath))
+            {
+                // Med musik: mappa video från concat + ljud från musikfil
+                string audioEncoder = settings.GetAudioEncoderArgs();
+                finalArgs = $"-y -f concat -safe 0 -i \"{listPath.Replace('\\', '/')}\" " +
+                            $"-i \"{musicPath}\" " +
+                            $"-map 0:v -map 1:a " +
+                            $"{finalVideoCodec} {audioEncoder} " +
+                            $"{settings.GetMuxerArgs()} " +
+                            $"-shortest " +
+                            $"\"{outputPath}\"";
+            }
+            else
+            {
+                // Utan musik: behåll originalljud från videoklippen eller tyst
+                // Vi kör utan audio mapping för enklast möjliga output
+                finalArgs = $"-y -f concat -safe 0 -i \"{listPath.Replace('\\', '/')}\" " +
+                            $"{finalVideoCodec} -an " +
+                            $"{settings.GetMuxerArgs()} " +
+                            $"\"{outputPath}\"";
+            }
 
             await _ffmpeg.RunAsync(finalArgs, ct);
 
-            progress?.Report((100, "Done!"));
+            progress?.Report((100, $"Done! Exported as {formatName}"));
         }
         finally
         {
