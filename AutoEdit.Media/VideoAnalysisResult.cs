@@ -20,4 +20,9 @@ public sealed class VideoAnalysisResult
     /// Tidsstämplar (i sekunder) där scenbyten upptäcktes.
     /// </summary>
     public List<double> SceneChanges { get; init; } = new();
+    
+    /// <summary>
+    /// Bokmärken (i sekunder) från PotPlayer eller manuellt tillagda.
+    /// </summary>
+    public List<double> Bookmarks { get; set; } = new();
 }

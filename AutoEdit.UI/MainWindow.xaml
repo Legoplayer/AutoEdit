@@ -9,11 +9,11 @@
     Height="750"
     AllowsTransparency="True"
     Background="Transparent"
+    PreviewKeyDown="Window_PreviewKeyDown"
     TextElement.FontFamily="{DynamicResource AppFontFamily}"
     TextElement.FontSize="14"
     WindowStartupLocation="CenterScreen"
-    WindowStyle="None"
-    PreviewKeyDown="Window_PreviewKeyDown">
+    WindowStyle="None">
 
     <!--  Main blur container with glass morphism  -->
     <Border
@@ -90,8 +90,8 @@
             <!--  Inner glow border  -->
             <Border
                 Margin="0"
-                BorderThickness="1"
                 BorderBrush="{DynamicResource AppWindowBorderBrush}"
+                BorderThickness="1"
                 CornerRadius="16">
 
                 <Grid Margin="20">
@@ -325,12 +325,12 @@
                                                 BorderThickness="0"
                                                 ItemContainerStyle="{StaticResource AnimatedListBoxItem}"
                                                 ItemsSource="{Binding Clips}"
+                                                ScrollViewer.CanContentScroll="True"
                                                 SelectedItem="{Binding SelectedClip}"
-                                                VirtualizingPanel.IsVirtualizing="True"
-                                                VirtualizingPanel.VirtualizationMode="Recycling"
                                                 VirtualizingPanel.CacheLength="4"
                                                 VirtualizingPanel.CacheLengthUnit="Item"
-                                                ScrollViewer.CanContentScroll="True"
+                                                VirtualizingPanel.IsVirtualizing="True"
+                                                VirtualizingPanel.VirtualizationMode="Recycling"
                                                 Visibility="{Binding HasClips, Converter={StaticResource BooleanToVisibilityConverter}}">
                                                 <ListBox.ItemsPanel>
                                                     <ItemsPanelTemplate>
@@ -458,9 +458,7 @@
                                     </Border>
 
                                     <!--  Add bookmark straight from the app  -->
-                                    <StackPanel
-                                        Margin="0,8,0,0"
-                                        Visibility="{Binding HasSelectedClip, Converter={StaticResource BooleanToVisibilityConverter}}">
+                                    <StackPanel Margin="0,8,0,0" Visibility="{Binding HasSelectedClip, Converter={StaticResource BooleanToVisibilityConverter}}">
                                         <TextBlock
                                             FontSize="12"
                                             FontWeight="SemiBold"
@@ -773,13 +771,13 @@
                                                 BorderThickness="0"
                                                 ItemContainerStyle="{StaticResource AnimatedListBoxItem}"
                                                 ItemsSource="{Binding TimelineSegments}"
-                                                SelectedItem="{Binding SelectedTimelineSegment}"
+                                                ScrollViewer.CanContentScroll="True"
                                                 ScrollViewer.VerticalScrollBarVisibility="Auto"
-                                                VirtualizingPanel.IsVirtualizing="True"
-                                                VirtualizingPanel.VirtualizationMode="Recycling"
+                                                SelectedItem="{Binding SelectedTimelineSegment}"
                                                 VirtualizingPanel.CacheLength="6"
                                                 VirtualizingPanel.CacheLengthUnit="Item"
-                                                ScrollViewer.CanContentScroll="True">
+                                                VirtualizingPanel.IsVirtualizing="True"
+                                                VirtualizingPanel.VirtualizationMode="Recycling">
                                                 <ListBox.ItemsPanel>
                                                     <ItemsPanelTemplate>
                                                         <VirtualizingStackPanel />
@@ -798,9 +796,7 @@
                                                                     <ColumnDefinition Width="Auto" />
                                                                 </Grid.ColumnDefinitions>
                                                                 <StackPanel>
-                                                                    <TextBlock
-                                                                        FontWeight="SemiBold"
-                                                                        Text="{Binding TimelineLabel}" />
+                                                                    <TextBlock FontWeight="SemiBold" Text="{Binding TimelineLabel}" />
                                                                     <TextBlock
                                                                         FontSize="11"
                                                                         Opacity="0.75"
