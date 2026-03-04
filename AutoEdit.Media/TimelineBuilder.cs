@@ -7,7 +7,7 @@ namespace AutoEdit.Media;
 public sealed class TimelineBuilder
 {
     public List<TimelineEvent> Build(
-        AudioAnalysisResult audio,
+        AudioAnalysisResult? audio,
         List<VideoAnalysisResult> videos,
         double minClipDuration,
         double maxClipDuration,
@@ -22,13 +22,31 @@ public sealed class TimelineBuilder
         
         // Håll koll på hur mycket vi använt av varje klipp för att undvika upprepning direkt
         var clipCursors = videos.ToDictionary(v => v, v => 0.0);
-        
-        // Sortera beats
-        var beatTimes = audio.BeatTimes.ToList();
-        
-        // Lägg till slutet av låten som en "beat" om det saknas
-        if (beatTimes.Count == 0 || beatTimes.Last() < audio.DurationSeconds)
-            beatTimes.Add(audio.DurationSeconds);
+
+        double totalDuration;
+        List<double> beatTimes;
+
+        if (audio != null)
+        {
+            // Musikdriven klippning: använd beats och låtens längd
+            beatTimes = audio.BeatTimes.ToList();
+            totalDuration = audio.DurationSeconds;
+
+            // Lägg till slutet av låten som en "beat" om det saknas
+            if (beatTimes.Count == 0 || beatTimes.Last() < totalDuration)
+                beatTimes.Add(totalDuration);
+        }
+        else
+        {
+            // Ingen musik: klipp baserat på total videolängd med jämna intervall
+            totalDuration = videos.Sum(v => v.DurationSeconds);
+            double avgClip = (minClipDuration + maxClipDuration) / 2.0;
+            beatTimes = new List<double>();
+            for (double t = avgClip; t < totalDuration; t += avgClip)
+                beatTimes.Add(t);
+            if (beatTimes.Count == 0 || beatTimes.Last() < totalDuration)
+                beatTimes.Add(totalDuration);
+        }
 
         int beatIndex = 0;
         
@@ -41,7 +59,7 @@ public sealed class TimelineBuilder
         double beatCutProbability = 0.3 + (aggNorm * 0.7); // 30% till 100%
 
         // Loopa tills vi fyllt musiken eller slut på video (men vi loopar video om det behövs)
-        while (currentTimelineTime < audio.DurationSeconds)
+        while (currentTimelineTime < totalDuration)
         {
             // 1. Bestäm längd på nästa klipp
             // Hitta nästa beat som ligger minst minClipDuration bort
@@ -92,16 +110,14 @@ public sealed class TimelineBuilder
             if (nextCutTime < 0)
             {
                 // Inga fler beats eller beats för långt bort?
-                // Klipp till slutet av låten eller max length
-                double remaining = audio.DurationSeconds - currentTimelineTime;
+                // Klipp till slutet eller max length
+                double remaining = totalDuration - currentTimelineTime;
                 nextCutTime = currentTimelineTime + Math.Min(remaining, maxClipDuration);
             }
 
             double clipDuration = nextCutTime - currentTimelineTime;
             
-            // 2. Välj videoklipp (enkelt: slumpa, men försök inte ta samma som nyss)
-            var availableVideos = videos.Where(v => v != timeline.LastOrDefault()?.SourceFilePath as object).ToList(); // Lite ful check, men funkar om vi hade objekten.
-            // Bättre: bara slumpa från listan, se till att det inte är samma index som förra om count > 1.
+            // 2. Välj videoklipp (undvik samma källa som senaste segmentet om möjligt)
             
             VideoAnalysisResult selectedVideo;
             if (videos.Count == 1)
